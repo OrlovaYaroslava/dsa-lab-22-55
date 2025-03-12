@@ -1,18 +1,17 @@
+# Задание 2.15 
+# 1. Считать с клавиатуры произвольную строку.
+# 2. Подсчитать количество букв "t" в строке. Вывести результат в консоль.
+
+
 # Чтение строки с клавиатуры
 text = input("Введите строку: ")
 
-word = ""
-words = []
+# Подсчет количества букв "t"
+count = 0
 
-# Разбиение строки на слова вручную
-for char in text + " ":
-    if char.isalpha():
-        word += char
-    elif word:
-        words.append(word)
-        word = ""
+for char in text:
+    if char == "t" or char == "T":
+        count += 1
 
-# Вывод слов, оканчивающихся на "u"
-for word in words:
-    if word[-1] == "u":
-        print(word)
+# Вывод результата
+print(f"Количество букв 't': {count}")
