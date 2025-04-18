@@ -19,7 +19,8 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from dotenv import load_dotenv
 
 
-load_dotenv()  # Загружает переменные из .env
+# Загружает переменные из .env
+load_dotenv()  
 API_TOKEN = os.getenv("API_TOKEN")
 
 
