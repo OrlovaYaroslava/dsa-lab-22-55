@@ -11,19 +11,19 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from dotenv import load_dotenv
 import psycopg2
 
-# Загрузка API токена из .env
+# Загрузка API токена из файла .env
 load_dotenv()
 API_TOKEN = os.getenv("API_TOKEN")
 
-# Настройка логирования
+# Настройка логирования для отладки
 logging.basicConfig(level=logging.INFO)
 
-# Инициализация бота и диспетчера
+# Инициализация бота и диспетчера с использованием памяти для хранения состояний
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
 
-# Подключение к новой базе данных
+# Функция подключения к базе данных PostgreSQL
 def get_connection():
     return psycopg2.connect(
         dbname="currency_bot",
@@ -34,7 +34,7 @@ def get_connection():
     )
 
 
-# Проверка: является ли пользователь админом
+# Проверка, является ли пользователь администратором по chat_id
 def is_admin(chat_id):
     conn = get_connection()
     cursor = conn.cursor()
@@ -45,7 +45,7 @@ def is_admin(chat_id):
     return result is not None
 
 
-# FSM состояния
+# Состояния для валютных операций (FSM)
 class CurrencyForm(StatesGroup):
     name = State()
     rate = State()
@@ -54,12 +54,13 @@ class CurrencyForm(StatesGroup):
     update_rate = State()
 
 
+# Состояния для конвертации валют (FSM)
 class ConvertForm(StatesGroup):
     currency = State()
     amount = State()
 
 
-# /start
+# Обработчик команды /start
 @dp.message(Command("start"))
 async def cmd_start(message: Message) -> None:
     await message.answer(
@@ -71,13 +72,13 @@ async def cmd_start(message: Message) -> None:
     )
 
 
-# /me (показывает chat_id)
+# Обработчик команды /me — выводит chat_id пользователя
 @dp.message(Command("me"))
 async def cmd_me(message: Message) -> None:
     await message.answer(f"Твой chat_id: {message.chat.id}")
 
 
-# /get_currencies
+# Обработчик команды /get_currencies — выводит все доступные валюты
 @dp.message(Command("get_currencies"))
 async def cmd_get_currencies(message: Message) -> None:
     conn = get_connection()
@@ -101,17 +102,17 @@ async def cmd_get_currencies(message: Message) -> None:
         conn.close()
 
 
-# /convert
+# Обработчик команды /convert — запускает процесс конвертации
 @dp.message(Command("convert"))
 async def cmd_convert(message: Message, state: FSMContext) -> None:
     await message.answer("Введите название валюты:")
     await state.set_state(ConvertForm.currency)
 
 
+# Сохраняет валюту, проверяет наличие в базе
 @dp.message(ConvertForm.currency)
 async def process_convert_currency(message: Message, state: FSMContext) -> None:
     currency = message.text.strip().lower()
-
     conn = get_connection()
     cursor = conn.cursor()
     try:
@@ -130,12 +131,12 @@ async def process_convert_currency(message: Message, state: FSMContext) -> None:
         await state.update_data(currency_name=currency, rate=rate)
         await message.answer(f"Введите сумму в {currency.upper()}:")
         await state.set_state(ConvertForm.amount)
-
     finally:
         cursor.close()
         conn.close()
 
 
+# Завершает процесс конвертации: рассчитывает сумму в рублях
 @dp.message(ConvertForm.amount)
 async def process_convert_amount(message: Message, state: FSMContext) -> None:
     try:
@@ -162,7 +163,7 @@ async def process_convert_amount(message: Message, state: FSMContext) -> None:
     await state.clear()
 
 
-# /manage_currency
+# Обработчик команды /manage_currency — проверка прав и меню управления
 @dp.message(Command("manage_currency"))
 async def cmd_manage_currency(message: Message) -> None:
     if not is_admin(str(message.chat.id)):
@@ -180,22 +181,20 @@ async def cmd_manage_currency(message: Message) -> None:
         resize_keyboard=True,
         one_time_keyboard=True
     )
-
     await message.answer("Выберите действие:", reply_markup=keyboard)
 
 
-# Добавить валюту
+# Обработка кнопки "Добавить валюту"
 @dp.message(F.text == "Добавить валюту")
 async def handle_add_currency_button(message: Message, state: FSMContext):
     await message.answer("Введите название валюты:")
     await state.set_state(CurrencyForm.name)
 
 
+# Проверка, есть ли валюта, и запрос курса
 @dp.message(CurrencyForm.name)
 async def process_currency_name(message: Message, state: FSMContext) -> None:
     name = message.text.strip().lower()
-
-    # Проверка существования валюты
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT 1 FROM currencies WHERE currency_name = %s;", (name,))
@@ -213,6 +212,7 @@ async def process_currency_name(message: Message, state: FSMContext) -> None:
     await state.set_state(CurrencyForm.rate)
 
 
+# Сохраняет валюту и её курс в базу
 @dp.message(CurrencyForm.rate)
 async def process_currency_rate(message: Message, state: FSMContext) -> None:
     try:
@@ -226,7 +226,6 @@ async def process_currency_rate(message: Message, state: FSMContext) -> None:
 
     conn = get_connection()
     cursor = conn.cursor()
-
     try:
         cursor.execute(
             "INSERT INTO currencies (currency_name, rate) VALUES (%s, %s);",
@@ -243,17 +242,17 @@ async def process_currency_rate(message: Message, state: FSMContext) -> None:
         await state.clear()
 
 
-# Удалить валюту
+# Обработка кнопки "Удалить валюту"
 @dp.message(F.text == "Удалить валюту")
 async def handle_delete_currency(message: Message, state: FSMContext):
     await message.answer("Введите название валюты, которую нужно удалить:")
     await state.set_state(CurrencyForm.delete)
 
 
+# Удаляет валюту из таблицы
 @dp.message(CurrencyForm.delete)
 async def process_delete_currency(message: Message, state: FSMContext):
     name = message.text.strip().lower()
-
     conn = get_connection()
     cursor = conn.cursor()
     try:
@@ -269,13 +268,14 @@ async def process_delete_currency(message: Message, state: FSMContext):
         await state.clear()
 
 
-# Обновить курс валюты
+# Обработка кнопки "Изменить курс валюты"
 @dp.message(F.text == "Изменить курс валюты")
 async def handle_update_currency(message: Message, state: FSMContext):
     await message.answer("Введите название валюты, курс которой нужно изменить:")
     await state.set_state(CurrencyForm.update_name)
 
 
+# Сохраняет имя валюты для обновления
 @dp.message(CurrencyForm.update_name)
 async def process_update_name(message: Message, state: FSMContext):
     await state.update_data(currency_name=message.text.strip().lower())
@@ -283,6 +283,7 @@ async def process_update_name(message: Message, state: FSMContext):
     await state.set_state(CurrencyForm.update_rate)
 
 
+# Обновляет курс валюты в базе
 @dp.message(CurrencyForm.update_rate)
 async def process_update_rate(message: Message, state: FSMContext):
     try:
@@ -309,7 +310,7 @@ async def process_update_rate(message: Message, state: FSMContext):
         await state.clear()
 
 
-# Установка команд по ролям
+# Установка команд для пользователей и администраторов
 async def set_commands():
     admin_commands = [
         BotCommand(command="start", description="Начать работу"),
@@ -329,7 +330,7 @@ async def set_commands():
     await bot.set_my_commands(user_commands, scope=BotCommandScopeDefault())
 
 
-# Запуск бота
+# Точка входа: запуск бота и установка команд
 async def main():
     await set_commands()
     await dp.start_polling(bot)
